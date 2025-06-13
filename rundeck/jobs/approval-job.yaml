@@ -1,0 +1,39 @@
+- id: 'aprobar-despliegue-produccion'
+  name: 'Aprobar Despliegue a Producción'
+  description: 'Job para aprobar promoción de versión a producción tras validación en staging'
+  project: 'mi-aplicacion'
+  group: 'despliegues/produccion'
+  access:
+    read: 'role:qa-team,devops-team'
+    run: 'role:qa-team,devops-team'
+  options:
+    - name: 'version_a_aprobar'
+      description: 'Versión de la aplicación a aprobar para producción'
+      required: true
+      type: 'string'
+      defaultValue: 'v1.0.0'
+    - name: 'entorno_origen'
+      description: 'Entorno de origen donde se validó'
+      required: true
+      type: 'select'
+      values: ['staging', 'testing', 'pre-prod']
+      defaultValue: 'staging'
+  notification:
+    onsuccess:
+      - type: 'webhook'
+        configuration:
+          url: 'https://kestra.mi-dominio.com/api/v1/executions/mi-namespace/flujo-de-despliegue/webhook-trigger'
+          method: 'POST'
+          headers:
+            'Content-Type': 'application/json'
+            'Authorization': 'Bearer ${globals.KESTRA_WEBHOOK_TOKEN}'
+          payload: |
+            {
+              "event": "approval_granted",
+              "version": "${option.version_a_aprobar}",
+              "approved_by": "${job.username}",
+              "approval_time": "${job.dateTime.iso8601}",
+              "source_environment": "${option.entorno_origen}"
+            }
+  sequence:
+    - exec: 'echo "Aprobando despliegue de la versión ${option.version_a_aprobar}..."'

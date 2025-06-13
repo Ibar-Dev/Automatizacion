@@ -1,0 +1,34 @@
+apiVersion: policy.karmada.io/v1alpha1
+kind: OverridePolicy
+metadata:
+  name: app-prod-overrides
+  namespace: mi-aplicacion
+spec:
+  resourceSelectors:
+    - apiVersion: v1
+      kind: ConfigMap
+      name: app-config
+    - apiVersion: apps/v1
+      kind: Deployment
+  overrideRules:
+    - targetCluster:
+        clusterNames: ["prod-us-east"]
+      overriders:
+        plaintext:
+          - path: "/data/ENVIRONMENT"
+            operator: "replace"
+            value: "produccion-us-east"
+          - path: "/data/DATABASE_URL"
+            operator: "replace"
+            value: "postgresql://user:pass@postgres-us-east:5432/appdb"
+    - targetCluster:
+        clusterNames: ["prod-eu-west"]
+      overriders:
+        plaintext:
+          - path: "/data/ENVIRONMENT"
+            operator: "replace"
+            value: "produccion-eu-west"
+          - path: "/data/DATABASE_URL"
+            operator: "replace"
+            value: "postgresql://user:pass@postgres-eu-west:5432/appdb"
+

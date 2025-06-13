@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: mi-aplicacion
+data:
+  APP_VERSION: "v1.0.0"
+  ENVIRONMENT: "staging"
+  BACKEND_URL: "http://backend-service:8080"
+  DATABASE_URL: "postgresql://user:pass@postgres:5432/appdb"

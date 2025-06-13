@@ -1,0 +1,101 @@
+id: flujo_de_despliegue
+namespace: com.miempresa.cicd
+
+inputs:
+  - name: git_commit_sha
+    type: STRING
+    defaults: latest
+
+tasks:
+  # --- NUEVA TAREA: Clonar el repositorio con los manifiestos ---
+  - id: clonar_repositorio
+    type: io.kestra.plugin.git.Clone
+    url: https://github.com/tu_usuario/mi-aplicacion-automatizada.git # <-- CAMBIA ESTO
+    branch: main
+
+  # --- TAREA 1: Despliegue a Staging ---
+  - id: desplegar_a_staging
+    type: io.kestra.plugin.kubernetes.Apply
+    kubeconfig: "{{ secret('STAGING_KUBECONFIG') }}"
+    # Leemos los ficheros directamente del repositorio clonado
+    specs: |
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/namespace.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/configmap.yaml') }}
+      ---
+      # Modificamos el Service del Frontend para Staging
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/frontend-service.yaml') | replace('LoadBalancer', 'NodePort') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/backend-service.yaml') }}
+      ---
+      # Modificamos el Deployment para usar la etiqueta de imagen de Staging (git_commit_sha)
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/frontend-deployment.yaml') | replace('v1.0.0', inputs.git_commit_sha) }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/backend-deployment.yaml') | replace('v1.0.0', inputs.git_commit_sha) }}
+      ---
+      # Modificamos el Ingress para el dominio de Staging
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/ingress.yaml') | replace('app.mi-dominio.com', 'app.staging.mi-dominio.com') }}
+
+  # --- TAREA 2: Solicitar Aprobación en Rundeck ---
+  - id: solicitar_aprobacion_en_rundeck
+    type: io.kestra.plugin.core.http.Request
+    uri: https://rundeck.mi-dominio.com/api/41/job/a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6/run
+    method: POST
+    headers:
+      X-Rundeck-Auth-Token: "{{ secret('RUNDECK_API_TOKEN') }}"
+      Content-Type: application/json
+    body: |
+      {
+        "argString": "-version_a_aprobar {{ inputs.git_commit_sha }}"
+      }
+
+  # --- TRIGGER: Esperar Webhook de Rundeck ---
+triggers:
+  - id: webhook_trigger_rundeck
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "aprobacion-prod-123"
+
+  # --- TAREA 3: Despliegue a Producción con Karmada (se ejecuta tras el webhook) ---
+  - id: desplegar_a_produccion_con_karmada
+    type: io.kestra.plugin.kubernetes.Apply
+    # Este se conecta al plano de control de Karmada
+    kubeconfig: "{{ secret('KARMADA_KUBECONFIG') }}"
+    specs: |
+      # Aplicamos los manifiestos base, pero reemplazando la versión de la imagen
+      # con la que nos llega del webhook de Rundeck.
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/namespace.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/configmap.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/frontend-service.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/backend-service.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/ingress.yaml') }}
+      ---
+      # ¡Magia! Reemplazamos la etiqueta de la imagen con la versión aprobada.
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/frontend-deployment.yaml') | replace('v1.0.0', trigger.body.version) }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/base/backend-deployment.yaml') | replace('v1.0.0', trigger.body.version) }}
+      ---
+      # Aplicamos las políticas de Karmada
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/karmada/propagation-policy.yaml') }}
+      ---
+      {{ read(clonar_repositorio.outputs.uri ~ '/k8s/karmada/override-policy.yaml') }}
+    
+  # --- TAREA 4: Notificar Éxito ---
+  - id: notificar_exito
+    type: io.kestra.plugin.notifications.slack.SlackExecution
+    url: "{{ secret('SLACK_WEBHOOK_URL') }}"
+    custom: |
+      {
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "✅ Despliegue a Producción de `mi-aplicacion` versión `{{ trigger.body.version }}` completado con éxito por `{{ trigger.body.approver }}`."
+            }
+          }
+        ]
+      }

@@ -1,0 +1,30 @@
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: app-propagate-to-prod
+  namespace: mi-aplicacion
+spec:
+  resourceSelectors:
+    - apiVersion: v1
+      kind: Namespace
+      name: mi-aplicacion
+    - apiVersion: v1
+      kind: ConfigMap
+      name: app-config
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: frontend-app
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: backend-app
+    - apiVersion: v1
+      kind: Service
+      name: frontend-service
+    - apiVersion: v1
+      kind: Service
+      name: backend-service
+  placement:
+    clusterAffinity:
+      clusterNames:
+        - prod-us-east
+        - prod-eu-west
